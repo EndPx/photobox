@@ -319,9 +319,9 @@ function exitSession() {
 }
 function resetHome(){checkout.hide();stopCamera();state.photos=[];state.result=null;state.file=null;state.sessionId=null;state.demo=false;state.screen='home';$('#brand-home').disabled=false;render();window.scrollTo(0,0)}
 function help() {
-  const paymentHint = shopConfig?.mode === 'production'
-    ? 'Pindai QRIS dengan aplikasi pembayaran di HP dan tunggu konfirmasi.'
-    : 'Untuk mode uji, pindai QRIS menggunakan simulator resmi Midtrans Sandbox.';
+  const paymentHint = shopConfig?.mode === 'sandbox'
+    ? 'Untuk mode uji, pindai QRIS menggunakan simulator resmi Midtrans Sandbox.'
+    : 'Buka QRIS dan ikuti petunjuk pembayaran yang tampil.';
   openModal(`<div class="modal-head"><h2>Cara pakai Photobox</h2>${closeButton()}</div>
     <ol class="help-list"><li>Tekan Press to Start. Kalau punya kode promo dari kasir, masukkan sebelum membuka QRIS.</li><li>${paymentHint}</li><li>Aktifkan kamera dan tekan Mulai Foto untuk hitung mundur. Ada 3 pose.</li><li>Ambil ulang jika perlu, pilih frame, lalu cetak atau unduh JPG.</li></ol>
     <p>Hasil foto dibuat di perangkat ini. Simpan sebelum sesi ditutup.</p>
@@ -334,7 +334,6 @@ bind('help-button',help);bind('brand-home',()=>state.screen==='home'?null:exitSe
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.screen==='capture'&&state.busy){stopCamera();const clock=$('#countdown');if(clock)clock.style.display='none';$('#brand-home').disabled=false;if(state.demo){state.ready=true;updateCameraControls()}else{const idle=$('#camera-idle');if(idle){idle.hidden=false;$('#enable-camera').disabled=false;$('#enable-camera').textContent='Aktifkan kamera lagi';$('#camera-message').textContent='Sesi foto dijeda saat aplikasi berpindah ke latar belakang. Aktifkan kamera untuk melanjutkan.'}updateCameraControls()}toast('Sesi dijeda. Foto yang sudah diambil tetap tersedia.')}});
 window.addEventListener('pagehide',stopCamera);
 render();
-loadShop().then(()=>{if(state.screen==='home')render()}).catch(()=>{});
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});

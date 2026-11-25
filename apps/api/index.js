@@ -179,7 +179,8 @@ async function updateOrder(env, order, action) {
     throw new Problem(410,'Sesi lama sudah ditutup. Mulai sesi baru.');
   }
   if (action === 'complete') {
-    if (order.status !== 'paid' && order.status !== 'completed') throw new Problem(409,'Pembayaran belum terverifikasi.');
+    if (order.status === 'completed') return json(publicOrder(order));
+    if (order.status !== 'paid') throw new Problem(409,'Pembayaran belum terverifikasi.');
     await db.prepare("UPDATE orders SET status = 'completed', completed_at = ? WHERE id = ? AND status = 'paid'")
       .bind(Date.now(),order.id).run();
   } else if (order.status === 'pending') {
@@ -193,8 +194,11 @@ async function updateOrder(env, order, action) {
     } else {
       const acquired = await db.prepare("UPDATE orders SET provider_checked_at = ? WHERE id = ? AND status = 'pending' AND provider_checked_at <= ?")
         .bind(Date.now(),order.id,Date.now()-9500).run();
-      if (acquired.meta.changes) await refreshProviderPayment(db,order,key);
+      if (!acquired.meta.changes) return json(publicOrder(order));
+      await refreshProviderPayment(db,order,key);
     }
+  } else {
+    return json(publicOrder(order));
   }
   return json(publicOrder(await getOrder(db,order.id)));
 }

@@ -49,8 +49,8 @@ function submit(selector, handler, statusSelector) {
 
 let view = 'transactions';
 
-async function dashboard(message='') {
-  const data = await api('cashier/dashboard');
+async function dashboard(message='', snapshot) {
+  const data = snapshot ?? await api('cashier/dashboard');
   const {config} = data;
   root.innerHTML = `<div class="page-top"><div><div class="eyebrow">SIMPANG SAMPING OBOR</div><h1>Panel kasir</h1><p>Kelola pembayaran, voucher, dan pengaturan kiosk.</p></div><a class="secondary brand-link" href="/">Buka layar Photobox</a></div>
   <nav class="admin-nav" aria-label="Menu admin">${[['transactions','Transaksi'],['vouchers','Voucher'],['settings','Pengaturan']].map(([id,label])=>`<button type="button" class="pill ${view===id?'selected':''}" data-admin-view="${id}" aria-pressed="${view===id}">${label}</button>`).join('')}</nav>
@@ -87,7 +87,7 @@ async function dashboard(message='') {
   root.querySelector(view==='vouchers'?'#issue-status':'#config-status').textContent = message;
   root.querySelectorAll('[data-admin-view]').forEach(button=>button.addEventListener('click',()=>{
     view = button.dataset.adminView;
-    dashboard().catch(error=>root.textContent=error.message);
+    dashboard('',data).catch(error=>root.textContent=error.message);
   }));
   const list = root.querySelector('#payments-list');
   for (const payment of data.latest) {

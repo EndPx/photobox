@@ -60,7 +60,7 @@ async function recordProviderStatus(db, order, transaction) {
     await db.prepare("UPDATE orders SET status = ? WHERE id = ? AND status = 'pending'")
       .bind(status, order.id).run();
   }
-  if (transaction.transaction_status === 'pending') {
+  if (transaction.transaction_status === 'pending' && !order.qr_url) {
     const qr = qrImage(transaction, order.mode);
     if (qr) await db.prepare('UPDATE orders SET qr_url = ? WHERE id = ? AND qr_url IS NULL').bind(qr, order.id).run();
   }
