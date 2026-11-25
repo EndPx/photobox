@@ -1,7 +1,7 @@
 const PROMO_LIMIT = 5;
 const PROMO_DISCOUNT = 5000;
 const SESSION_AGE = 8 * 60 * 60 * 1000;
-const SHOP_DEFAULTS = {price:35000, countdown:3, mode:'trial'};
+const SHOP_DEFAULTS = {price:35000, countdown:3, mode:'sandbox'};
 const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2,'0')).join('');
 const randomHex = length => hex(crypto.getRandomValues(new Uint8Array(length)));
 const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[byte & 31]).join('');
@@ -29,7 +29,9 @@ function writeSetting(db, key, value) {
 
 async function shop(db) {
   const value = await setting(db, 'config');
-  return value ? {...SHOP_DEFAULTS,...JSON.parse(value),price:SHOP_DEFAULTS.price} : SHOP_DEFAULTS;
+  if (!value) return SHOP_DEFAULTS;
+  const {mode,countdown} = JSON.parse(value);
+  return {...SHOP_DEFAULTS,mode:mode === 'production' ? 'production' : 'sandbox',countdown};
 }
 
 async function bodyOf(request) {
@@ -81,11 +83,9 @@ async function cashierLogin(env, data) {
   const password = String(data.password ?? '');
   if (username.length > 128 || password.length > 512) throw new Problem(400,'Kredensial admin tidak valid.');
   const window = Math.floor(Date.now() / 300000);
-  const attempts = await db.prepare(`INSERT INTO shop (key,value) VALUES ('cashier_attempts',json_array(?,1))
-    ON CONFLICT (key) DO UPDATE SET value = CASE
-      WHEN json_extract(value,'$[0]') = ? THEN json_array(?,json_extract(value,'$[1]')+1)
-      ELSE json_array(?,1) END RETURNING json_extract(value,'$[1]') AS count`)
-    .bind(window,window,window,window).first('count');
+  const attempts = await db.prepare(`INSERT INTO cashier_login_attempts (window_id,attempts) VALUES (?,1)
+    ON CONFLICT (window_id) DO UPDATE SET attempts = cashier_login_attempts.attempts + 1
+    RETURNING attempts`).bind(window).first('attempts');
   if (attempts > 6) throw new Problem(429,'Terlalu banyak percobaan. Coba lagi dalam 5 menit.');
   const [provided,expected] = await Promise.all([
     hash(JSON.stringify([username,password])),
@@ -94,7 +94,7 @@ async function cashierLogin(env, data) {
   if (!sameDigest(provided,expected)) throw new Problem(401,'Username atau password salah.');
   const token = randomHex(32);
   await db.batch([
-    db.prepare("DELETE FROM shop WHERE key = 'cashier_attempts'"),
+    db.prepare("DELETE FROM cashier_login_attempts WHERE window_id <= ?").bind(window),
     db.prepare('DELETE FROM cashier_sessions WHERE expires_at <= ?').bind(Date.now()),
     db.prepare('INSERT INTO cashier_sessions (digest,expires_at) VALUES (?,?)').bind(await sessionDigest(env,token),Date.now()+SESSION_AGE)
   ]);
@@ -103,7 +103,7 @@ async function cashierLogin(env, data) {
   });
 }
 
-async function lookupVoucher(db, input, isTrial) {
+async function lookupVoucher(db, input) {
   const code = normalCode(input);
   if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) throw new Problem(400,'Masukkan kode yang tertera dari kasir.');
   const promo = await db.prepare('SELECT code, revoked_at FROM promo_codes WHERE code = ?').bind(code).first();
@@ -113,7 +113,7 @@ async function lookupVoucher(db, input, isTrial) {
   }
   const voucher = await db.prepare('SELECT * FROM vouchers WHERE code = ?').bind(code).first();
   if (!voucher) throw new Problem(404,'Kode tidak ditemukan. Cek kembali kode dari kasir.');
-  if (Boolean(voucher.is_trial) !== isTrial) {
+  if (voucher.is_trial) {
     throw new Problem(409,'Kode ini dibuat untuk mode pembayaran yang berbeda.');
   }
   const active = await db.prepare("SELECT status FROM orders WHERE voucher = ? AND status IN ('pending','paid','completed')").bind(code).first();
@@ -124,18 +124,24 @@ async function lookupVoucher(db, input, isTrial) {
 }
 
 async function voucherIssue(db) {
-  const code = randomCode();
-  const result = await db.prepare(`INSERT INTO promo_codes (code,created_at)
-    SELECT ?,? WHERE (SELECT COUNT(*) FROM promo_codes WHERE revoked_at IS NULL) < ?
-      AND NOT EXISTS (SELECT 1 FROM vouchers WHERE code = ?)
-    ON CONFLICT(code) DO NOTHING`)
-    .bind(code,Date.now(),PROMO_LIMIT,code).run();
-  if (!result.meta.changes) throw new Problem(409,'Kode belum terbit. Maksimal 5 kode aktif. Jika masih ada tempat, coba lagi.');
-  return json({code,discount:PROMO_DISCOUNT},201);
+  for (let attempt = 0; attempt < PROMO_LIMIT; attempt++) {
+    const code = randomCode();
+    const result = await db.prepare(`WITH slots(slot) AS (VALUES (1),(2),(3),(4),(5))
+      INSERT INTO promo_codes (code,created_at,active_slot)
+      SELECT ?,?,slot FROM slots
+      WHERE NOT EXISTS (SELECT 1 FROM promo_codes WHERE active_slot = slots.slot)
+        AND NOT EXISTS (SELECT 1 FROM vouchers WHERE code = ?)
+      ORDER BY slot LIMIT 1
+      ON CONFLICT DO NOTHING`).bind(code,Date.now(),code).run();
+    if (result.meta.changes) return json({code,discount:PROMO_DISCOUNT},201);
+    const active = await db.prepare('SELECT COUNT(*) AS count FROM promo_codes WHERE active_slot IS NOT NULL').first('count');
+    if (active >= PROMO_LIMIT) throw new Problem(409,'Maksimal 5 kode voucher aktif.');
+  }
+  throw new Problem(409,'Kode voucher belum terbit. Coba lagi.');
 }
 
 async function voucherRevoke(db, data) {
-  const result = await db.prepare('UPDATE promo_codes SET revoked_at = ? WHERE code = ? AND revoked_at IS NULL')
+  const result = await db.prepare('UPDATE promo_codes SET revoked_at = ?, active_slot = NULL WHERE code = ? AND revoked_at IS NULL')
     .bind(Date.now(),normalCode(data.code)).run();
   if (!result.meta.changes) throw new Problem(404,'Kode voucher aktif tidak ditemukan.');
   return json({ok:true});
@@ -149,27 +155,26 @@ async function getOrder(db, id) {
 async function createOrder(env,data) {
   const {DB: db} = env;
   let order = await getOrder(db,data.id);
+  if (order?.is_trial) throw new Problem(410,'Sesi lama sudah ditutup. Mulai sesi baru.');
   if (!order) {
     const config = await shop(db);
-    const isTrial = config.mode === 'trial';
-    if (!isTrial && !paymentKey(env,config.mode)) throw new Problem(503,'QRIS belum diaktifkan oleh kasir.');
-    const voucher = data.code ? await lookupVoucher(db,data.code,isTrial) : null;
+    if (!paymentKey(env,config.mode)) throw new Problem(503,'QRIS belum diaktifkan oleh kasir.');
+    const voucher = data.code ? await lookupVoucher(db,data.code) : null;
     const discount = voucher?.discount || 0;
     const promoCode = voucher?.reusable ? voucher.code : null;
     const voucherCode = voucher && !voucher.reusable ? voucher.code : null;
     const result = await db.prepare(`INSERT INTO orders
-      (id,reference,voucher,base_amount,discount,total,mode,status,created_at,is_trial,qr_url,promo_code)
-      SELECT ?,?,?,?,?,?,?,'pending',?,?,?,? WHERE
-        (? IS NULL OR NOT EXISTS (SELECT 1 FROM orders WHERE voucher = ? AND status IN ('pending','paid','completed')))
-        AND (? IS NULL OR EXISTS (SELECT 1 FROM promo_codes WHERE code = ? AND revoked_at IS NULL))
-      ON CONFLICT(id) DO NOTHING`)
-      .bind(data.id,(isTrial ? 'TRIAL-' : 'ST-') + randomCode(),voucherCode,config.price,discount,
-        config.price-discount,isTrial ? 'sandbox' : config.mode,Date.now(),Number(isTrial),
-        isTrial ? '/trial-qr.svg' : null,promoCode,voucherCode,voucherCode,promoCode,promoCode).run();
+      (id,reference,voucher,base_amount,discount,total,mode,status,created_at,promo_code)
+      SELECT ?,?,?,?,?,?,?,'pending',?,? WHERE
+        (CAST(? AS TEXT) IS NULL OR NOT EXISTS (SELECT 1 FROM orders WHERE voucher = ? AND status IN ('pending','paid','completed')))
+        AND (CAST(? AS TEXT) IS NULL OR EXISTS (SELECT 1 FROM promo_codes WHERE code = ? AND revoked_at IS NULL))
+      ON CONFLICT DO NOTHING`)
+      .bind(data.id,'ST-' + randomCode(),voucherCode,config.price,discount,
+        config.price-discount,config.mode,Date.now(),promoCode,voucherCode,voucherCode,promoCode,promoCode).run();
     order = await getOrder(db,data.id);
     if (!order && !result.meta.changes) throw new Problem(409,'Kode voucher sudah tidak tersedia. Periksa kembali kode dan coba lagi.');
   }
-  if (!order.is_trial && order.status === 'pending' && !order.qr_url) {
+  if (order.status === 'pending' && !order.qr_url) {
     const key = paymentKey(env,order.mode);
     if (!key) throw new Problem(503,'QRIS sedang tidak tersedia. Hubungi kasir.');
     // Let one request at a time initiate or recover a charge for this order.
@@ -183,19 +188,14 @@ async function createOrder(env,data) {
 async function updateOrder(env, order, action) {
   const db = env.DB;
   if (!order) throw new Problem(404,'Sesi pembayaran tidak ditemukan.');
-  if (action === 'simulate') {
-    if (!order.is_trial) throw new Problem(403,'Simulasi hanya tersedia untuk transaksi trial.');
-    await db.prepare("UPDATE orders SET status = 'paid', paid_at = ? WHERE id = ? AND is_trial = 1 AND status = 'pending'")
-      .bind(Date.now(),order.id).run();
-  } else if (action === 'complete') {
+  if (order.is_trial) {
+    if (action === 'complete' && ['paid','completed'].includes(order.status)) return json(publicOrder(order));
+    throw new Problem(410,'Sesi lama sudah ditutup. Mulai sesi baru.');
+  }
+  if (action === 'complete') {
     if (order.status !== 'paid' && order.status !== 'completed') throw new Problem(409,'Pembayaran belum terverifikasi.');
     await db.prepare("UPDATE orders SET status = 'completed', completed_at = ? WHERE id = ? AND status = 'paid'")
       .bind(Date.now(),order.id).run();
-  } else if (order.is_trial) {
-    if (action === 'cancel') {
-      await db.prepare("UPDATE orders SET status = 'canceled' WHERE id = ? AND is_trial = 1 AND status = 'pending'")
-        .bind(order.id).run();
-    }
   } else if (order.status === 'pending') {
     const key = paymentKey(env,order.mode);
     if (!key) throw new Problem(503,'QRIS sedang tidak tersedia. Hubungi kasir.');
@@ -217,10 +217,10 @@ async function configure(env, data) {
   const db = env.DB;
   const mode = data.mode;
   const countdown = Number(data.countdown);
-  if (!['trial','sandbox','production'].includes(mode) || ![3,5,8].includes(countdown)) {
+  if (!['sandbox','production'].includes(mode) || ![3,5,8].includes(countdown)) {
     throw new Problem(400,'Periksa mode QRIS dan waktu hitung mundur.');
   }
-  if (mode !== 'trial' && !paymentKey(env,mode)) {
+  if (!paymentKey(env,mode)) {
     throw new Problem(409,'Server Key Midtrans untuk mode ini belum dikonfigurasi di backend.');
   }
   await writeSetting(db,'config',JSON.stringify({mode,countdown})).run();
@@ -252,7 +252,7 @@ async function handleCashier(request, env, route) {
       db.prepare("SELECT reference,total,discount,status,CASE WHEN is_trial=1 THEN 'trial' ELSE mode END AS mode,created_at FROM orders ORDER BY created_at DESC LIMIT 35").all(),
       db.prepare('SELECT code,created_at FROM promo_codes WHERE revoked_at IS NULL ORDER BY created_at DESC, code ASC').all()
     ]);
-    return json({config,ready:config.mode === 'trial' || Boolean(paymentKey(env,config.mode)),metrics,pending:pending.count,latest:latest.results,promos:promos.results,promoLimit:PROMO_LIMIT});
+    return json({config,ready:Boolean(paymentKey(env,config.mode)),metrics,pending:pending.count,latest:latest.results,promos:promos.results,promoLimit:PROMO_LIMIT});
   }
   if (request.method !== 'POST') throw new Problem(405,'Metode tidak didukung.');
   const data = await bodyOf(request);
@@ -294,17 +294,17 @@ async function handle(request, env) {
   if (route.startsWith('/api/cashier/')) return handleCashier(request,env,route);
   if (route === '/api/shop' && request.method === 'GET') {
     const config = await shop(env.DB);
-    return json({...config,ready:config.mode === 'trial' || Boolean(paymentKey(env,config.mode))});
+    return json({...config,ready:Boolean(paymentKey(env,config.mode)),photoShare:Boolean(env.PHOTOS)});
   }
   if (request.method !== 'POST') throw new Problem(405,'Metode tidak didukung.');
   const data = await bodyOf(request);
   if (route === '/api/quote') {
     const config = await shop(env.DB);
-    const voucher = data.code ? await lookupVoucher(env.DB,data.code,config.mode === 'trial') : null;
+    const voucher = data.code ? await lookupVoucher(env.DB,data.code) : null;
     return json({baseAmount:config.price,discount:voucher?.discount || 0,total:config.price-(voucher?.discount || 0)});
   }
   if (route === '/api/order/start') return createOrder(env,data);
-  const actions = {'/api/order/status':'status','/api/order/cancel':'cancel','/api/order/complete':'complete','/api/order/simulate':'simulate'};
+  const actions = {'/api/order/status':'status','/api/order/cancel':'cancel','/api/order/complete':'complete'};
   if (actions[route]) return updateOrder(env,await getOrder(env.DB,data.id),actions[route]);
   throw new Problem(404,'Halaman tidak ditemukan.');
 }

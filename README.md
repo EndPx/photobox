@@ -15,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open [the kiosk](http://localhost:4173/) or [the admin panel](http://localhost:4173/kasir). The kiosk starts in dummy QRIS mode. Select **Press to Start**, then **Tampilkan QRIS dummy**, and **Simulasikan bayar berhasil**. You can also choose **Coba dengan foto ilustrasi** to open a simulated capture without using the camera.
+Open [the kiosk](http://localhost:4173/) or [the admin panel](http://localhost:4173/kasir). The kiosk starts in Midtrans Sandbox mode. Add `MIDTRANS_SANDBOX_SERVER_KEY` to the backend environment before starting checkout. Select **Press to Start**, optionally enter a voucher, and select **Tampilkan QRIS**. Settle the test payment with the [official Midtrans simulator](https://docs.midtrans.com/docs/testing-payment-on-sandbox). **Coba dengan foto ilustrasi** previews the editor without creating a payment.
 
 To enable the local admin on Windows:
 
@@ -31,8 +31,8 @@ Fill in `ADMIN_USERNAME` and a unique `ADMIN_PASSWORD` of at least 16 characters
 | --- | --- |
 | A session costs Rp35,000. An active voucher reduces it to Rp30,000. | Create up to five active, reusable Rp5,000 vouchers. Disable a code before issuing a replacement if all slots are filled. |
 | After QRIS confirmation, take three poses on the iPad. Retake the session from the editor. | Review confirmed production transaction counts by day, calendar week, month, or all time. Reporting uses Tabalong time (WITA). |
-| Pick a frame, apply one of eight filters, or adjust crop and zoom per pose. Print one large frame or two smaller copies on a 100 × 148 mm sheet. | Switch between local trial, Midtrans Sandbox, and production when the matching keys are configured on the backend. |
-| Save the JPG locally or confirm a temporary upload to create a download QR. | See recent sessions and refresh a pending Midtrans status. |
+| Pick a frame, apply one of eight filters, or adjust crop and zoom per pose. Print one large frame or two smaller copies on a 100 × 148 mm sheet. | Switch between Midtrans Sandbox and production when the matching keys are configured on the backend. |
+| Save the JPG locally or create a temporary download QR when photo storage is configured. | See recent sessions and refresh a pending Midtrans status. |
 
 ## Repository map
 
@@ -47,13 +47,17 @@ Fill in `ADMIN_USERNAME` and a unique `ADMIN_PASSWORD` of at least 16 characters
 
 ## Sandbox, PWA, and hosting
 
-Set `MIDTRANS_SANDBOX_SERVER_KEY` in `apps/api/.env` and select **Sandbox** in admin to connect a real Sandbox account. The API verifies Midtrans order ID, payment type, IDR amount, and status before unlocking the camera. Local automated checks use a simulated provider.
+Set `MIDTRANS_SANDBOX_SERVER_KEY` in `apps/api/.env` to connect the Sandbox account. Use the Midtrans simulator for this environment. The API verifies Midtrans order ID, payment type, IDR amount, and status before unlocking the camera. Local automated checks use a simulated provider.
 
 The kiosk is designed for portrait iPad use and ships an app manifest and service worker. Use HTTPS on iPad, then open Safari's share menu and choose **Add to Home Screen**. Checkout and photo delivery require an internet connection. Test the printer from the target iPad using 100 × 148 mm paper.
 
 For cross-device photo delivery, deploy the kiosk to a publicly reachable HTTPS origin with private object storage. The download token expires within 24 hours of payment. Set object lifecycle deletion on the storage side as well. Local preview links are intended for the browser running the preview.
 
-Vercel is the target for the GitHub-backed deployment. The current build packages the original Worker runtime with D1 and an R2-compatible photo binding. Vercel deployment requires a Node API adapter with durable database and object storage bindings before importing the repository. Use a commercial Vercel plan for the paid booth. Keep admin and order routes on the same origin as the relevant UI through routing or a reverse proxy so session cookies remain first-party.
+For the GitHub-backed Vercel deployment, import this repository at its root and keep the build and routes in [vercel.json](vercel.json). The build emits the kiosk and admin as static assets and the payment API runs in a Node.js function on the same origin.
+
+Use a separate Neon branch and database connection URL for Sandbox. The [database design and ERD](docs/database.md) specify all PostgreSQL keys and relationships. Apply the schema to a fresh branch by running `node apps/api/postgres/migrate.mjs` with that branch's `DATABASE_URL` in the backend environment. Add `DATABASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `MIDTRANS_SANDBOX_SERVER_KEY` to the Vercel Preview environment. Use a commercial Vercel plan for the paid booth.
+
+The current Vercel function has no photo storage binding. JPG download and printing work locally in the browser. Photo delivery by email requires a sender integration.
 
 ## Checks
 

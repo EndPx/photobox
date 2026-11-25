@@ -49,14 +49,13 @@ function render() {
   if (state.screen === 'finish') finishScreen();
 }
 function home() {
-  const trial = !shopConfig || shopConfig.mode === 'trial';
   app.innerHTML = `<section class="obor-home" aria-label="Photobox Simpang Samping Obor">
     <div class="home-copy">
       <p class="home-overline">SIMPANG SAMPING OBOR</p>
       <h1>Photobox<span aria-hidden="true">.</span></h1>
       <p class="home-subtitle">3 pose, satu kenangan.</p>
       <button class="primary hero-start" id="start-button">${checkout.hasActive()?'LANJUTKAN SESI':'PRESS TO START'}</button>
-      <p class="home-price">${money(settings.price)} per sesi${trial?' · QRIS dummy':''}</p>
+      <p class="home-price">${money(settings.price)} per sesi</p>
       <button class="quiet home-demo" id="demo-button">Coba dengan foto ilustrasi</button>
     </div>
     <div class="home-art" aria-hidden="true"></div>
@@ -136,7 +135,7 @@ function resultScreen() {
         <div class="result-actions">
           <button class="primary" id="print-button">Cetak foto</button>
           <button class="secondary" id="download-button">Unduh JPG</button>
-          ${state.sessionId?'<button class="secondary" id="share-button">Unduh lewat QR</button>':''}
+          ${state.sessionId && shopConfig?.photoShare?'<button class="secondary" id="share-button">Unduh lewat QR</button>':''}
         </div>
         <div class="footer-actions">
           <button class="retake" id="retake-button">Ulangi semua pose</button>
@@ -320,9 +319,9 @@ function exitSession() {
 }
 function resetHome(){checkout.hide();stopCamera();state.photos=[];state.result=null;state.file=null;state.sessionId=null;state.demo=false;state.screen='home';$('#brand-home').disabled=false;render();window.scrollTo(0,0)}
 function help() {
-  const paymentHint = shopConfig?.mode === 'trial'
-    ? 'Tampilkan QRIS dummy dan tekan Simulasikan bayar berhasil.'
-    : 'Pindai QRIS dengan HP. Tunggu pembayaran terverifikasi.';
+  const paymentHint = shopConfig?.mode === 'production'
+    ? 'Pindai QRIS dengan aplikasi pembayaran di HP dan tunggu konfirmasi.'
+    : 'Untuk mode uji, pindai QRIS menggunakan simulator resmi Midtrans Sandbox.';
   openModal(`<div class="modal-head"><h2>Cara pakai Photobox</h2>${closeButton()}</div>
     <ol class="help-list"><li>Tekan Press to Start. Kalau punya kode promo dari kasir, masukkan sebelum membuka QRIS.</li><li>${paymentHint}</li><li>Aktifkan kamera dan tekan Mulai Foto untuk hitung mundur. Ada 3 pose.</li><li>Ambil ulang jika perlu, pilih frame, lalu cetak atau unduh JPG.</li></ol>
     <p>Hasil foto dibuat di perangkat ini. Simpan sebelum sesi ditutup.</p>

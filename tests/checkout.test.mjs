@@ -20,7 +20,7 @@ test('admin sessions, reusable vouchers, settlement, reporting, and photo downlo
     return {status:response.status,payload:await response.json(),cookie:response.headers.get('Set-Cookie')};
   };
   const newId = ()=>randomBytes(32).toString('hex');
-  assert.deepEqual((await call('shop')).payload,{price:35000,countdown:3,mode:'trial',ready:true});
+  assert.deepEqual((await call('shop')).payload,{price:35000,countdown:3,mode:'sandbox',ready:true,photoShare:true});
   assert.equal((await call('cashier/login',{username:'operator',password:'wrong'})).status,401);
   const login = await call('cashier/login',{username:'operator',password:'fixture-password-123'});
   assert.equal(login.status,200);
@@ -39,44 +39,25 @@ test('admin sessions, reusable vouchers, settlement, reporting, and photo downlo
   const quote = await call('quote',{code:voucher.code.slice(0,4)+'-'+voucher.code.slice(4)});
   assert.deepEqual(quote.payload,{baseAmount:35000,discount:5000,total:30000});
   const trialId = newId();
-  const trial = await call('order/start',{id:trialId,code:voucher.code});
-  assert.equal(trial.payload.mode,'trial');
-  assert.equal(trial.payload.total,30000);
-  assert.equal(trial.payload.qr,'/trial-qr.svg');
-  assert.equal((await call('order/complete',{id:trialId})).status,409);
-  assert.equal((await call('order/simulate',{id:trialId})).payload.status,'paid');
-  assert.equal((await call('order/complete',{id:trialId})).payload.status,'completed');
-  assert.equal((await call('quote',{code:voucher.code})).status,200);
+  await database.prepare(`INSERT INTO orders (id,reference,base_amount,discount,total,mode,status,created_at,is_trial)
+    VALUES (?,?,35000,0,35000,'sandbox','pending',?,1)`).bind(trialId,trialId,Date.now()).run();
+  assert.equal((await call('order/start',{id:trialId})).status,410);
+  assert.equal((await call('order/status',{id:trialId})).status,410);
+  assert.equal((await call('order/simulate',{id:trialId})).status,404);
+  assert.equal((await call('cashier/config',{mode:'trial',countdown:3},{cashier:true})).status,400);
+  env.MIDTRANS_SANDBOX_SERVER_KEY = '';
+  assert.equal((await call('shop')).payload.ready,false);
+  assert.equal((await call('order/start',{id:newId()})).status,503);
   assert.equal(midtrans.transactions.size,0);
+  env.MIDTRANS_SANDBOX_SERVER_KEY = 'SB-fixture-server-key';
+  const fullPriceId = newId();
+  assert.equal((await call('order/start',{id:fullPriceId})).payload.total,35000);
+  assert.equal((await call('order/cancel',{id:fullPriceId})).payload.status,'canceled');
 
-  const photoBytes = Uint8Array.of(255,216,255,224,255,217);
-  const share = (session,requestOrigin=origin) => worker.fetch(new Request(origin+'/api/photo/share',{
-    method:'POST',headers:{Origin:requestOrigin,'Content-Type':'image/jpeg','X-Photo-Session':session},body:photoBytes
-  }),env);
-  assert.equal((await share(newId())).status,403);
-  assert.equal((await share(trialId,'https://other.test')).status,403);
-  const upload = await share(trialId);
-  assert.equal(upload.status,200);
-  const {path,expiresAt} = await upload.json();
-  assert(expiresAt>Date.now());
-  assert(!path.includes(trialId));
-  const download = await worker.fetch(new Request(origin+path),env);
-  assert.equal(download.status,200);
-  assert.equal(download.headers.get('Cache-Control'),'private, no-store');
-  assert.deepEqual(new Uint8Array(await download.arrayBuffer()),photoBytes);
-  await env.PHOTOS.put('photo/'+path.split('/').at(-1),photoBytes,{customMetadata:{expiresAt:String(Date.now()-1)}});
-  assert.equal((await worker.fetch(new Request(origin+path),env)).status,404);
-
-  const trialRetry = newId();
-  assert.equal((await call('order/start',{id:trialRetry})).payload.total,35000);
-  assert.equal((await call('order/cancel',{id:trialRetry})).payload.status,'canceled');
-  assert.equal((await call('order/simulate',{id:trialRetry})).payload.status,'canceled');
-
-  assert.equal((await call('cashier/config',{mode:'sandbox',countdown:3},{cashier:true})).status,200);
   const sandboxVoucher = voucher;
   const id = newId();
   const created = await call('order/start',{id,code:sandboxVoucher.code});
-  assert.equal((await call('order/simulate',{id})).status,403);
+  assert.equal((await call('order/simulate',{id})).status,404);
   assert.equal(created.status,200);
   assert.equal(created.payload.status,'pending');
   assert.equal(created.payload.total,30000);
@@ -95,11 +76,31 @@ test('admin sessions, reusable vouchers, settlement, reporting, and photo downlo
   assert.equal((await call('order/complete',{id})).payload.status,'completed');
   assert.equal((await call('order/complete',{id})).payload.status,'completed');
   assert.equal((await call('quote',{code:voucher.code})).status,200);
+
+  const photoBytes = Uint8Array.of(255,216,255,224,255,217);
+  const share = (session,requestOrigin=origin) => worker.fetch(new Request(origin+'/api/photo/share',{
+    method:'POST',headers:{Origin:requestOrigin,'Content-Type':'image/jpeg','X-Photo-Session':session},body:photoBytes
+  }),env);
+  assert.equal((await share(newId())).status,403);
+  assert.equal((await share(trialId)).status,403);
+  assert.equal((await share(id,'https://other.test')).status,403);
+  const upload = await share(id);
+  assert.equal(upload.status,200);
+  const {path,expiresAt} = await upload.json();
+  assert(expiresAt>Date.now());
+  assert(!path.includes(id));
+  const download = await worker.fetch(new Request(origin+path),env);
+  assert.equal(download.status,200);
+  assert.equal(download.headers.get('Cache-Control'),'private, no-store');
+  assert.deepEqual(new Uint8Array(await download.arrayBuffer()),photoBytes);
+  await env.PHOTOS.put('photo/'+path.split('/').at(-1),photoBytes,{customMetadata:{expiresAt:String(Date.now()-1)}});
+  assert.equal((await worker.fetch(new Request(origin+path),env)).status,404);
+
   const ledger = await call('cashier/dashboard',undefined,{cashier:true});
   assert.equal(ledger.payload.metrics.revenue,0);
   assert(ledger.payload.latest.some(order=>order.mode==='sandbox' && order.status==='completed'));
   assert.equal(ledger.payload.promos.length,5);
-  assert(ledger.payload.latest.some(order => order.mode==='trial' && order.status==='completed'));
+  assert(ledger.payload.latest.some(order => order.mode==='trial' && order.status==='pending'));
   const time = Date.now();
   const day = 86400000;
   const offset = 8 * 3600000;

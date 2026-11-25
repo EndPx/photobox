@@ -40,7 +40,7 @@ async function sharePhoto(request, env) {
   const id = request.headers.get('X-Photo-Session');
   const order = await getOrder(env.DB,id);
   const now = Date.now();
-  if (!order?.paid_at || now >= order.paid_at + PHOTO_LIFETIME || !['paid','completed'].includes(order.status)) {
+  if (!order?.paid_at || order.is_trial || now >= order.paid_at + PHOTO_LIFETIME || !['paid','completed'].includes(order.status)) {
     throw new Problem(403,'Sesi foto sudah berakhir atau belum dibayar.');
   }
   if (!env.PHOTOS) throw new Problem(503,'Unduhan QR belum tersedia. Gunakan Unduh JPG.');

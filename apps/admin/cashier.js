@@ -4,7 +4,7 @@ const root = document.querySelector('#app');
 const logout = document.querySelector('#cashier-logout');
 const money = value => new Intl.NumberFormat('id-ID',{style:'currency',currency:'IDR',maximumFractionDigits:0}).format(value);
 const wita = new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Makassar',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
-const modes = {trial:'QRIS dummy',sandbox:'Sandbox Midtrans',production:'Produksi'};
+const modes = {sandbox:'Sandbox Midtrans',production:'Produksi'};
 const statuses = {pending:'Menunggu QRIS',paid:'Dibayar',completed:'Foto selesai',canceled:'Dibatalkan',expired:'Kedaluwarsa',failed:'Gagal'};
 
 async function open() {
@@ -66,12 +66,12 @@ async function dashboard(message='') {
     </section>
     <section class="cashier-card" ${view==='settings'?'':'hidden'}>
       <h2>Pengaturan sesi dan QRIS</h2>
-      <p><strong>${modes[config.mode]}</strong> · ${config.mode==='trial'?'Siap dicoba tanpa Midtrans':data.ready?'Server Key tersedia di backend':'QRIS belum terhubung'}</p>
+      <p><strong>${modes[config.mode]}</strong> · ${data.ready?'Server Key tersedia di backend':'QRIS belum terhubung'}</p>
       <form id="config-form">
         <div class="settings-grid"><p>Harga per sesi <strong>${money(config.price)}</strong></p>
           <label class="form-field">Hitung mundur per pose<select name="countdown">${[3,5,8].map(n=>`<option value="${n}" ${n===config.countdown?'selected':''}>${n} detik</option>`).join('')}</select></label>
         </div>
-        <label class="form-field">Mode pembayaran<select name="mode"><option value="trial" ${config.mode==='trial'?'selected':''}>QRIS dummy · trial</option><option value="production" ${config.mode==='production'?'selected':''}>Produksi · pembayaran asli</option><option value="sandbox" ${config.mode==='sandbox'?'selected':''}>Sandbox · simulasi</option></select></label>
+        <label class="form-field">Mode pembayaran<select name="mode"><option value="production" ${config.mode==='production'?'selected':''}>Produksi · pembayaran asli</option><option value="sandbox" ${config.mode==='sandbox'?'selected':''}>Midtrans Sandbox · uji</option></select></label>
         <button class="primary">Simpan pengaturan</button>
       </form>
       <p id="config-status" role="status" class="input-hint"></p>

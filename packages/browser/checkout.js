@@ -67,14 +67,12 @@ export function createCheckout({root, onPaid, onHome}) {
     const discount = order?.discount ?? quote?.discount ?? 0;
     const total = order?.total ?? quote?.total ?? price;
     const mode = order?.mode || config?.mode;
-    const trial = mode === 'trial';
     const sandbox = mode === 'sandbox';
     const waiting = active && (!order || order.status === 'pending');
     root.innerHTML = `
       <section class="checkout-panel ${waiting?'is-waiting':''}">
         <div class="eyebrow">PEMBAYARAN QRIS</div>
         <h1>Bayar di sini, kakak!</h1>
-        ${trial ? '<p class="demo-badge">TRIAL · tidak ada uang yang ditagih</p>' : ''}
         ${sandbox ? '<p class="demo-badge">MODE UJI MIDTRANS · tanpa pembayaran asli</p>' : ''}
         <div class="checkout-receipt">
           <div><span>Sesi foto · 3 pose</span><strong>${amount(price)}</strong></div>
@@ -83,15 +81,11 @@ export function createCheckout({root, onPaid, onHome}) {
         </div>
         ${waiting ? `<div class="qr-panel">
           <strong>${order?.reference || 'Menyiapkan QRIS…'}</strong>
-          <img id="payment-qr" alt="${trial ? 'Kode QR simulasi' : 'Kode QRIS untuk sesi ini'}" ${order?.qr ? '' : 'hidden'}>
-          <p>${trial && order?.qr
-            ? 'Ketuk tombol di bawah untuk menyimulasikan pembayaran berhasil dan lanjut ke foto.'
-            : order?.qr
-              ? 'Pindai QR dengan aplikasi bank atau dompet digital di HP. Sesi terbuka setelah pembayaran terverifikasi.'
-              : 'QR sedang disiapkan. Lanjutkan dari sesi ini jika koneksi terputus.'}</p>
-          ${trial && order?.qr
-            ? '<button class="primary" id="simulate-payment">Simulasikan bayar berhasil</button>'
-            : `<button class="secondary" id="check-payment" ${pending ? 'disabled' : ''}>${order?.qr ? 'Cek status pembayaran' : 'Coba tampilkan QRIS'}</button>`}
+          <img id="payment-qr" alt="Kode QRIS untuk sesi ini" ${order?.qr ? '' : 'hidden'}>
+          <p>${order?.qr
+            ? (sandbox ? 'Gunakan simulator QRIS Midtrans Sandbox untuk transaksi uji.' : 'Pindai QR dengan aplikasi bank atau dompet digital di HP.')
+            : 'QR sedang disiapkan. Lanjutkan dari sesi ini jika koneksi terputus.'}</p>
+          <button class="secondary" id="check-payment" ${pending ? 'disabled' : ''}>${order?.qr ? 'Cek status pembayaran' : 'Coba tampilkan QRIS'}</button>
           ${order?.qr ? '<button class="quiet" id="cancel-payment">Batalkan QRIS</button>' : ''}
         </div>` : `<form id="redeem-form">
           <label class="form-field">Punya kode voucher?
@@ -99,7 +93,7 @@ export function createCheckout({root, onPaid, onHome}) {
             <span class="redeem-input"><input id="redeem-code" maxlength="12" placeholder="Kode dari kasir" autocapitalize="characters" autocomplete="off"><button type="submit" class="secondary">Pakai kode</button></span>
           </label>
         </form>
-        <div class="button-row"><button class="primary" id="pay-qris" ${config?.ready ? '' : 'disabled'}>${trial ? 'Tampilkan QRIS dummy' : 'Tampilkan QRIS'}</button><button class="quiet" id="payment-home">Kembali</button></div>`}
+        <div class="button-row"><button class="primary" id="pay-qris" ${config?.ready ? '' : 'disabled'}>Tampilkan QRIS</button><button class="quiet" id="payment-home">Kembali</button></div>`}
         <p id="payment-message" class="input-hint payment-message" role="status"></p>
       </section>`;
     const qr = root.querySelector('#payment-qr');
@@ -111,7 +105,6 @@ export function createCheckout({root, onPaid, onHome}) {
     root.querySelector('#pay-qris')?.addEventListener('click',begin);
     root.querySelector('#payment-home')?.addEventListener('click',leave);
     root.querySelector('#check-payment')?.addEventListener('click',()=>order?.qr ? check(true) : start());
-    root.querySelector('#simulate-payment')?.addEventListener('click',()=>check(true,'simulate'));
     root.querySelector('#cancel-payment')?.addEventListener('click',async event=>{
       if (pending) return;
       if (event.currentTarget.dataset.confirm !== 'yes') {
@@ -122,7 +115,7 @@ export function createCheckout({root, onPaid, onHome}) {
       }
       await check(true,'cancel');
     });
-    if (!waiting && config && !config.ready) alert('QRIS belum aktif. Kasir perlu menghubungkan akun Midtrans dulu.');
+    if (!waiting && config && !config.ready) alert('QRIS belum aktif. Hubungi pengelola untuk mengaktifkan Midtrans.');
   }
 
   async function applyCode(event) {
@@ -180,7 +173,7 @@ export function createCheckout({root, onPaid, onHome}) {
 
   function schedule() {
     clearTimeout(pollTimer);
-    if (active && visible && order?.status === 'pending' && order.mode !== 'trial') pollTimer = setTimeout(()=>check(false),10000);
+    if (active && visible && order?.status === 'pending') pollTimer = setTimeout(()=>check(false),10000);
   }
 
   async function start() {
@@ -196,7 +189,7 @@ export function createCheckout({root, onPaid, onHome}) {
       if (accept(row)) return;
     } catch (error) {
       if (run !== generation) return;
-      if ([400,404,409].includes(error.status)) remember(null);
+      if ([400,404,409,410].includes(error.status)) remember(null);
       errorMessage = error.message;
     } finally {
       if (run === generation) {
@@ -229,7 +222,12 @@ export function createCheckout({root, onPaid, onHome}) {
         await start();
         return;
       }
-      if (manual) alert(error.message);
+      if (error.status === 410) {
+        remember(null);
+        order = null;
+        renderCheckout();
+      }
+      if (manual || error.status === 410) alert(error.message);
     } finally {
       if (run === generation) {
         pending = false;

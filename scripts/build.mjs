@@ -9,7 +9,6 @@ const textAssets = {
   '/app.js': ['apps/kiosk/app.js', js],
   '/cashier.js': ['apps/admin/cashier.js', js],
   '/model.mjs': ['packages/browser/model.mjs', js],
-  '/trial-qr.svg': ['apps/kiosk/trial-qr.svg', 'image/svg+xml'],
   '/frame-art.mjs': ['apps/kiosk/frame-art.mjs', js],
   '/checkout.js': ['packages/browser/checkout.js', js],
   '/manifest.webmanifest': ['apps/kiosk/manifest.webmanifest', 'application/manifest+json'],
@@ -18,8 +17,12 @@ const textAssets = {
 };
 
 const assets = {};
+await mkdir('dist/client/art', {recursive:true});
 for (const [route, [file, type]] of Object.entries(textAssets)) {
-  assets[route] = {type, body: await readFile(new URL('../' + file, import.meta.url), 'utf8')};
+  const source = new URL('../' + file, import.meta.url);
+  assets[route] = {type, body: await readFile(source, 'utf8')};
+  const staticPath = route === '/' ? '/index.html' : route === '/kasir' ? '/cashier.html' : route;
+  await copyFile(source,'dist/client' + staticPath);
 }
 const binaryAssets = {
   ...Object.fromEntries(['logo','payment','home','special-day','momen-kita','obor-after-dark']
@@ -29,7 +32,9 @@ const binaryAssets = {
   'icon-512.png': 'image/png',
 };
 for (const [file, type] of Object.entries(binaryAssets)) {
-  const binary = await readFile(new URL('../apps/kiosk/' + file, import.meta.url));
+  const source = new URL('../apps/kiosk/' + file, import.meta.url);
+  await copyFile(source,'dist/client/' + file);
+  const binary = await readFile(source);
   assets['/' + file] = {type, base64:binary.toString('base64')};
 }
 const modules = ['payments.js', 'photos.js', 'index.js'];
