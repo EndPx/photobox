@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1795440000000,
+      "tag": "0000_photobox_checkout",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1795440001000,
+      "tag": "0001_trial_qris",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795526400000,
+      "tag": "0002_reusable_promo_codes",
+      "breakpoints": true
+    }
+  ]
+}

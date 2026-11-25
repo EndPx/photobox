@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#59181c">
+  <meta name="description" content="Photobox Simpang Samping Obor. Pilih frame, abadikan momen, dan bawa pulang kenangannya.">
+  <title>Simpang Samping Obor — Photobox</title>
+  <link rel="icon" type="image/webp" href="/art/logo.webp">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-screen="home">
+  <header class="header">
+    <button class="brand" id="brand-home" aria-label="Kembali ke awal"><span class="obor-logo" aria-hidden="true"><img src="/art/logo.webp" alt=""></span><span><strong id="brand-name">Simpang Samping Obor</strong><small>PHOTOBOX</small></span></button>
+    <button class="header-help" id="help-button">Cara pakai</button>
+  </header>
+  <main id="app"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="modal"><div id="modal-content"></div></dialog>
+  <div id="print-area" aria-hidden="true"><img id="print-image" alt="Hasil photobox siap cetak"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

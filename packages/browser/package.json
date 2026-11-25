@@ -1,0 +1,5 @@
+{
+  "name": "@photobox/browser",
+  "private": true,
+  "type": "module"
+}

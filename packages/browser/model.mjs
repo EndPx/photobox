@@ -1,0 +1,7 @@
+export const DEFAULTS={brand:'Simpang Samping Obor',price:35000,countdown:3,mirror:true};
+export function cleanSettings(value){return {brand:typeof value?.brand==='string'&&value.brand.trim()?value.brand.trim().slice(0,30):DEFAULTS.brand,price:Number.isFinite(Number(value?.price))&&Number(value?.price)>=0&&Number(value?.price)<=10000000?Math.round(Number(value.price)):DEFAULTS.price,countdown:[3,5,8].includes(Number(value?.countdown))?Number(value.countdown):3,mirror:typeof value?.mirror==='boolean'?value.mirror:true};}
+export function poseCount(layout){return layout==='grid'?4:3;}
+export function slots(layout){const W=1181,H=1748;if(layout==='grid'){const m=66,g=27,w=(W-m*2-g)/2,h=650;return {width:W,height:H,slots:[0,1,2,3].map(i=>({x:m+(i%2)*(w+g),y:90+Math.floor(i/2)*(h+g),w,h,pose:i})),footers:[{x:W/2,y:1547,w:W-100}],dividers:[]};}const half=W/2,m=43,w=half-m*2,h=391,g=28;return {width:W,height:H,slots:[0,1].flatMap(col=>[0,1,2].map(i=>({x:col*half+m,y:83+i*(h+g),w,h,pose:i}))),footers:[{x:half/2,y:1450,w:half-50},{x:half*1.5,y:1450,w:half-50}],dividers:[half]};}
+export function cropRect(sw,sh,dw,dh){const scale=Math.max(dw/sw,dh/sh);const w=Math.min(sw,dw/scale),h=Math.min(sh,dh/scale);return {x:(sw-w)/2,y:(sh-h)/2,w,h};}
+export function csvCell(value){const s=String(value??'');return '"'+(/^[=+\-@\t\r]/.test(s)?"'"+s:s).replaceAll('"','""')+'"';}
+export function revenue(records,day){return records.filter(r=>r.paid===true&&r.date?.slice(0,10)===day).reduce((sum,r)=>sum+(Number(r.price)||0),0);}
