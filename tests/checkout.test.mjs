@@ -61,6 +61,7 @@ test('admin sessions, reusable vouchers, settlement, reporting, and photo downlo
   assert.equal(created.status,200);
   assert.equal(created.payload.status,'pending');
   assert.equal(created.payload.total,30000);
+  assert.equal(await database.prepare('SELECT promo_code FROM orders WHERE id=?').bind(id).first('promo_code'),voucher.code);
   assert.match(created.payload.qr,/api\.sandbox\.midtrans\.com/);
   assert.equal((await call('order/start',{id:newId(),code:sandboxVoucher.code})).status,200);
   assert.equal((await call('order/complete',{id})).status,409);

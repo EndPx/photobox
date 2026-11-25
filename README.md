@@ -55,7 +55,7 @@ For cross-device photo delivery, deploy the kiosk to a publicly reachable HTTPS 
 
 For the GitHub-backed Vercel deployment, import this repository at its root and keep the build and routes in [vercel.json](vercel.json). The build emits the kiosk and admin as static assets and the payment API runs in a Node.js function on the same origin.
 
-Use a separate Neon branch and database connection URL for Sandbox. The [database design and ERD](docs/database.md) specify all PostgreSQL keys and relationships. Apply the schema to a fresh branch by running `node apps/api/postgres/migrate.mjs` with that branch's `DATABASE_URL` in the backend environment. Add `DATABASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `MIDTRANS_SANDBOX_SERVER_KEY` to the Vercel Preview environment. Use a commercial Vercel plan for the paid booth.
+Use a separate Neon branch and database connection URL for Sandbox. The [database design and ERD](docs/database.md) specify all PostgreSQL keys and relationships. Apply the schema to a fresh branch by running `node apps/api/postgres/migrate.mjs` with that branch's `DATABASE_URL` in the backend environment. If the branch already has the initial schema, run `node apps/api/postgres/migrate.mjs 0002_remove_legacy_vouchers.sql` to apply only the cleanup migration. Add `DATABASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `MIDTRANS_SANDBOX_SERVER_KEY` to the Vercel Preview environment. Use a commercial Vercel plan for the paid booth.
 
 The current Vercel function has no photo storage binding. JPG download and printing work locally in the browser. Photo delivery by email requires a sender integration.
 

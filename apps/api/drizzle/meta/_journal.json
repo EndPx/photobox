@@ -29,6 +29,13 @@
       "when": 1795622400000,
       "tag": "0003_active_slots",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1795622401000,
+      "tag": "0004_remove_legacy_vouchers",
+      "breakpoints": true
     }
   ]
 }

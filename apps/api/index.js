@@ -107,20 +107,9 @@ async function lookupVoucher(db, input) {
   const code = normalCode(input);
   if (!/^[A-HJ-NP-Z2-9]{8}$/.test(code)) throw new Problem(400,'Masukkan kode yang tertera dari kasir.');
   const promo = await db.prepare('SELECT code, revoked_at FROM promo_codes WHERE code = ?').bind(code).first();
-  if (promo) {
-    if (promo.revoked_at !== null) throw new Problem(409,'Kode voucher sudah dinonaktifkan.');
-    return {code, discount:PROMO_DISCOUNT, reusable:true};
-  }
-  const voucher = await db.prepare('SELECT * FROM vouchers WHERE code = ?').bind(code).first();
-  if (!voucher) throw new Problem(404,'Kode tidak ditemukan. Cek kembali kode dari kasir.');
-  if (voucher.is_trial) {
-    throw new Problem(409,'Kode ini dibuat untuk mode pembayaran yang berbeda.');
-  }
-  const active = await db.prepare("SELECT status FROM orders WHERE voucher = ? AND status IN ('pending','paid','completed')").bind(code).first();
-  if (active) {
-    throw new Problem(409,active.status === 'pending' ? 'Kode sedang dipakai di pembayaran lain. Selesaikan atau batalkan pembayaran tersebut.' : 'Kode ini sudah pernah dipakai.');
-  }
-  return voucher;
+  if (!promo) throw new Problem(404,'Kode tidak ditemukan. Cek kembali kode dari kasir.');
+  if (promo.revoked_at !== null) throw new Problem(409,'Kode voucher sudah dinonaktifkan.');
+  return {code, discount:PROMO_DISCOUNT};
 }
 
 async function voucherIssue(db) {
@@ -130,9 +119,8 @@ async function voucherIssue(db) {
       INSERT INTO promo_codes (code,created_at,active_slot)
       SELECT ?,?,slot FROM slots
       WHERE NOT EXISTS (SELECT 1 FROM promo_codes WHERE active_slot = slots.slot)
-        AND NOT EXISTS (SELECT 1 FROM vouchers WHERE code = ?)
       ORDER BY slot LIMIT 1
-      ON CONFLICT DO NOTHING`).bind(code,Date.now(),code).run();
+      ON CONFLICT DO NOTHING`).bind(code,Date.now()).run();
     if (result.meta.changes) return json({code,discount:PROMO_DISCOUNT},201);
     const active = await db.prepare('SELECT COUNT(*) AS count FROM promo_codes WHERE active_slot IS NOT NULL').first('count');
     if (active >= PROMO_LIMIT) throw new Problem(409,'Maksimal 5 kode voucher aktif.');
@@ -161,16 +149,14 @@ async function createOrder(env,data) {
     if (!paymentKey(env,config.mode)) throw new Problem(503,'QRIS belum diaktifkan oleh kasir.');
     const voucher = data.code ? await lookupVoucher(db,data.code) : null;
     const discount = voucher?.discount || 0;
-    const promoCode = voucher?.reusable ? voucher.code : null;
-    const voucherCode = voucher && !voucher.reusable ? voucher.code : null;
+    const promoCode = voucher?.code || null;
     const result = await db.prepare(`INSERT INTO orders
-      (id,reference,voucher,base_amount,discount,total,mode,status,created_at,promo_code)
-      SELECT ?,?,?,?,?,?,?,'pending',?,? WHERE
-        (CAST(? AS TEXT) IS NULL OR NOT EXISTS (SELECT 1 FROM orders WHERE voucher = ? AND status IN ('pending','paid','completed')))
-        AND (CAST(? AS TEXT) IS NULL OR EXISTS (SELECT 1 FROM promo_codes WHERE code = ? AND revoked_at IS NULL))
+      (id,reference,base_amount,discount,total,mode,status,created_at,promo_code)
+      SELECT ?,?,?,?,?,?,'pending',?,? WHERE
+        CAST(? AS TEXT) IS NULL OR EXISTS (SELECT 1 FROM promo_codes WHERE code = ? AND revoked_at IS NULL)
       ON CONFLICT DO NOTHING`)
-      .bind(data.id,'ST-' + randomCode(),voucherCode,config.price,discount,
-        config.price-discount,config.mode,Date.now(),promoCode,voucherCode,voucherCode,promoCode,promoCode).run();
+      .bind(data.id,'ST-' + randomCode(),config.price,discount,
+        config.price-discount,config.mode,Date.now(),promoCode,promoCode,promoCode).run();
     order = await getOrder(db,data.id);
     if (!order && !result.meta.changes) throw new Problem(409,'Kode voucher sudah tidak tersedia. Periksa kembali kode dan coba lagi.');
   }
